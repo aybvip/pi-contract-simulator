@@ -69,3 +69,29 @@ readers to `getLedgerEntries`.
 
 **Reason:** silently substituting a different method hides a real compatibility detail from the reader.
 A tool that quietly papers over a missing method produces developers who do not know their target.
+
+---
+
+## D6 — Recorded claims are endpoint- and version-scoped; re-measurement is mandatory
+
+**Decision:** every recorded method claim is bound to `endpoint`, `nodeVersion`, and `protocolVersion`,
+and the CLI provides `node sim.mjs --verify-claims` that **fails (exit 2)** if the claim no longer
+matches a live measurement (or if the node version moved).
+
+**Reason:** a date is not evidence. The measured state of a public RPC can change with upgrades. The
+guard catches version moves (`superseded`), behavioural changes at the same version (`stale`), and
+unreachable endpoints (`unreachable`), and refuses to publish conclusions in those cases.
+
+---
+
+## D7 — A contract-analysis layer cannot be derived from this RPC alone
+
+**Decision:** the repository explicitly records that fetching WASM, enumerating storage, and listing
+contract entries are **not available** on this endpoint (measured: `-32601 method not found`, and no
+enumerate method exists). This is documented in [`ANALYSIS-LIMIT.md`](ANALYSIS-LIMIT.md), not left as
+an omission.
+
+**Reason:** accepting the technical limit is more honest than expanding scope. Adding such a layer
+would require the WASM and/or storage layout from a separate source, and this tool deliberately keeps
+its scope to "read and classify" what the node returns. See also D3 for why it does not attempt to
+produce signed attestations.

@@ -9,9 +9,14 @@
   a developer can act on.
 - Does a successful simulation guarantee success on-chain? **No.** That inference is explicitly
   forbidden and enforced by tests.
-- Does it analyse my contract's logic? **No.** It reports what the node returned.
+- Does it analyse my contract's logic? **No.** It reports what the node returned. The RPC does not
+  expose the WASM (`getContractWasm` -32601), does not enumerate storage, and has no list method, so a
+  logic layer cannot be derived from it alone.
 - Does it work on Mainnet? **No.** `rpc.mainnet.minepi.com` is not reachable (measured).
 - Does it sign or submit anything? **No.** Simulation and reads only.
+- Are the recorded claims still valid? Re-check with `node sim.mjs --verify-claims`. It re-probes every
+  claim live and **exits 2** if anything is stale, superseded, or unreachable. Claims are
+  endpoint-scoped and version-scoped, never "always true".
 - Which methods does the Pi Testnet node support? `simulateTransaction`, `getLedgerEntries` (empty set
   is NOT an error), `getHealth`, `getNetwork`, `getLatestLedger`, `getVersionInfo`, `getFeeStats`,
   `getTransaction`, `getEvents`. `getContractData` is **absent** (-32601 method not found).
@@ -31,6 +36,7 @@
 
 ```
 node sim.mjs --surface         # RPC methods the node answers (live)
+node sim.mjs --verify-claims   # re-measure every recorded claim; exit 2 if stale
 node sim.mjs --identity        # node version / protocol / ledger (live)
 node sim.mjs --failures        # failure shapes F1-F5 (live)
 node sim.mjs --mainnet         # Mainnet RPC reachability (live)
@@ -39,6 +45,7 @@ node sim.mjs --snapshot FILE   # write a comparable snapshot
 node sim.mjs --compare A B     # compare two snapshots
 node sim.mjs --verdicts        # verdict model (offline)
 node sim.mjs --report F1       # one failure shape as a report (offline)
+node sim.mjs --analysis-limit  # what this RPC cannot provide a logic layer (offline)
 node sim.mjs --boundaries      # what this tool refuses to claim
 node test/run.mjs              # offline invariants
 ```
@@ -46,6 +53,7 @@ node test/run.mjs              # offline invariants
 ## Claim kinds
 
 Every statement is exactly one of: `measured` · `documented` · `external` · `not-claimed`.
+Claim scope is endpoint-scoped, version-scoped, or protocol-scoped — never "always true".
 
 ## Never claimed
 
@@ -55,6 +63,8 @@ On-chain success, contract-logic correctness, Mainnet behaviour, fee promises, a
 
 - Simulation: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/SIMULATION.md
 - Failure shapes: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/FAILURE-SHAPES.md
+- Claim verification: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/CLAIM-VERIFICATION.md
+- Analysis limit: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/ANALYSIS-LIMIT.md
 - Regression: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/REGRESSION.md
 - Decisions: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/DECISIONS.md
 - Sources: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/SOURCES.md

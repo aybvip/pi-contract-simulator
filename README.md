@@ -11,6 +11,20 @@
 > your contract's business logic. It does **not** work against Mainnet — the Mainnet Soroban RPC is not
 > reachable (measured; see below). It makes **no claim** that Pi approved or endorsed anything.
 
+### The name vs the scope — read this first
+
+The name says *simulator*, which can read as "simulates the contract's logic". **It does not.** It calls
+the node's `simulateTransaction` method and **classifies the response**. It does not read the contract's
+WASM, does not enumerate storage, and does not model state transitions — because the RPC provides none
+of those (measured: `getContractWasm` / `getContractCode` / `getAccount` all return `-32601 method not
+found`, and there is no enumerate method). That limit is recorded in
+[`docs/ANALYSIS-LIMIT.md`](docs/ANALYSIS-LIMIT.md) rather than papered over.
+
+> **Recorded claims are endpoint- and version-scoped, and must be re-measured before use.**
+> `node sim.mjs --verify-claims` re-probes every recorded claim live and **exits 2** if anything is
+> stale, superseded, or unreachable — so no conclusion is published from a stale record. See
+> [`docs/CLAIM-VERIFICATION.md`](docs/CLAIM-VERIFICATION.md).
+
 ---
 
 ## The one-line answer
@@ -28,6 +42,7 @@ Requires **Node.js ≥ 20**. **No npm dependencies.**
 
 ```bash
 node sim.mjs --surface      # which RPC methods the node answers (live)
+node sim.mjs --verify-claims # re-measure every recorded claim; exit 2 if stale
 node sim.mjs --failures     # reproduce the five measured failure shapes (live)
 node sim.mjs --identity     # node version / protocol / ledger (live)
 node sim.mjs --mainnet      # Mainnet RPC reachability (live)
@@ -35,6 +50,7 @@ node sim.mjs --probe        # all of the above
 
 node sim.mjs --verdicts     # the verdict model (offline)
 node sim.mjs --report F1    # one failure shape as a developer report (offline)
+node sim.mjs --analysis-limit # what this RPC cannot provide a logic layer (offline)
 node sim.mjs --boundaries   # what this tool refuses to claim
 node test/run.mjs           # offline invariant suite
 ```
@@ -83,6 +99,10 @@ in [`docs/FAILURE-SHAPES.md`](docs/FAILURE-SHAPES.md).
 
 Node identity at measurement time: `passphrase: Pi Testnet`, `protocolVersion: 28`, `nodeVersion: 28.0.1`.
 
+> **Scope.** Every row above is true of **this endpoint at this node version**. It is **not** a claim
+> about "Pi's RPC in general", and it is not guaranteed to hold after an upgrade. `--verify-claims`
+> re-measures and refuses to publish if the behaviour moved.
+
 **Mainnet:** `rpc.mainnet.minepi.com` is **not reachable** (measured). That is why this tool is
 Testnet-only, and why it says so rather than silently pointing at an endpoint that answers nothing.
 
@@ -122,7 +142,10 @@ distinct regression signal. See [`docs/REGRESSION.md`](docs/REGRESSION.md).
 
 - **No signing, submitting, or broadcasting.** Only simulation and reads.
 - **No claim that simulation success implies on-chain success.** Stated as a forbidden inference and enforced by tests.
-- **No contract-logic analysis.** It reports what the node said.
+- **No contract-logic analysis.** It does not read WASM, enumerate storage, or model state transitions
+  — the RPC provides none of those; see [`docs/ANALYSIS-LIMIT.md`](docs/ANALYSIS-LIMIT.md).
+- **No stale records presented as current.** `--verify-claims` fails the run if any claim is not
+  freshly measured.
 - **No Mainnet support.** The endpoint is not reachable; the tool says so instead of failing silently.
 - **No fee promise.** It reports the fee the node returned, and does not present it as what you will pay.
 - **No attestation tool.** A "capability passport" with signed test evidence was **declined** — see
@@ -136,6 +159,8 @@ distinct regression signal. See [`docs/REGRESSION.md`](docs/REGRESSION.md).
 - [`docs/INDEX.md`](docs/INDEX.md) — index of everything
 - [`docs/SIMULATION.md`](docs/SIMULATION.md) — what the Testnet node supports (measured)
 - [`docs/FAILURE-SHAPES.md`](docs/FAILURE-SHAPES.md) — the five measured failure shapes, verbatim
+- [`docs/CLAIM-VERIFICATION.md`](docs/CLAIM-VERIFICATION.md) — why a recorded measurement is not evidence
+- [`docs/ANALYSIS-LIMIT.md`](docs/ANALYSIS-LIMIT.md) — what this RPC cannot provide a logic layer
 - [`docs/REGRESSION.md`](docs/REGRESSION.md) — comparing runs honestly
 - [`docs/DECISIONS.md`](docs/DECISIONS.md) — decision record, including what was not built
 - [`docs/SOURCES.md`](docs/SOURCES.md) — every source, by claim kind

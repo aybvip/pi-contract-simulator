@@ -18,8 +18,9 @@
 
 import { writeFileSync, readFileSync } from "node:fs";
 import { VERDICTS, FAILURE_SHAPES, RPC_SURFACE, BOUNDARIES, FORBIDDEN_CLAIMS,
-  FORBIDDEN_INFERENCE, REGRESSION_REQUIREMENTS, FIXTURES, FIXTURE_NOTE, failureById } from "./lib.mjs";
-import { runAllProbes, rpcCall, ENDPOINTS } from "./probe.mjs";
+  FORBIDDEN_INFERENCE, REGRESSION_REQUIREMENTS, FIXTURES, FIXTURE_NOTE, failureById,
+  CLAIM_VERIFICATION, BLOCKING_VERIFICATION, ANALYSIS_REQUIREMENTS, ANALYSIS_NOT_CLAIMED } from "./lib.mjs";
+import { runAllProbes, rpcCall, ENDPOINTS, verifyRecordedClaims } from "./probe.mjs";
 import { buildReport, renderReport, compareRuns, isComparable, REPORT_DISCLAIMER } from "./report.mjs";
 
 const out = (s = "") => process.stdout.write(s + "\n");
@@ -29,6 +30,7 @@ function help() {
   out("pi-contract-simulator — simulate Pi Testnet contract calls, read-only");
   out("");
   out("  node sim.mjs --surface         which RPC methods the node answers (live)");
+  out("  node sim.mjs --verify-claims   re-measure every recorded claim (exit 2 if stale)");
   out("  node sim.mjs --failures        reproduce failure shapes F1-F5 (live)");
   out("  node sim.mjs --identity        node version / protocol / ledger (live)");
   out("  node sim.mjs --mainnet         Mainnet RPC reachability (live)");
@@ -37,6 +39,7 @@ function help() {
   out("  node sim.mjs --compare A B     compare two snapshots");
   out("  node sim.mjs --verdicts        the verdict model (offline)");
   out("  node sim.mjs --report F1       render one failure shape as a report (offline)");
+  out("  node sim.mjs --analysis-limit  what this RPC canNOT provide a logic layer (offline)");
   out("  node sim.mjs --boundaries      what this tool refuses to claim");
   out("  node sim.mjs --help            this help");
   out("");
@@ -47,6 +50,8 @@ async function surface() {
   const { probeSurface } = await import("./probe.mjs");
   const r = await probeSurface();
   rule(`RPC SURFACE — ${r.endpoint}`);
+  out(`  recorded against node ${RPC_SURFACE.nodeVersion} / protocol ${RPC_SURFACE.protocolVersion}`);
+  out("");
   for (const row of r.rows) {
     out(`  ${row.method.padEnd(20)} ${row.classification}${row.code != null ? ` (${row.code})` : ""}`);
     if (row.resultKeys) out(`      result keys: ${row.resultKeys.join(", ")}`);
@@ -54,7 +59,48 @@ async function surface() {
   }
   out("");
   out("  A method classified 'supported-validation-error' EXISTS — the error is about");
-  out("  the arguments, not about the method. 'method-absent' (code -32601) does not exist.");
+  out("  the arguments, not about the method. 'method-absent' (code -32601) does not exist");
+  out("  at THIS endpoint at THIS node version. Both can change; re-measure with --verify-claims.");
+}
+
+async function verifyClaims() {
+  rule("VERIFYING RECORDED CLAIMS AGAINST A LIVE MEASUREMENT");
+  out(`  endpoint recorded: ${RPC_SURFACE.endpoint}`);
+  out(`  version  recorded: node ${RPC_SURFACE.nodeVersion} / protocol ${RPC_SURFACE.protocolVersion}`);
+  out(`  recorded on:       ${RPC_SURFACE.measuredAt}`);
+  out(`  (that date is not evidence — this re-run is)`);
+  const v = await verifyRecordedClaims();
+  out("");
+  out(`  endpoint live:     ${v.endpoint}`);
+  out(`  version  live:     node ${v.liveVersion ?? "(unreachable)"} / protocol ${v.liveProtocol ?? "(unreachable)"}`);
+  if (v.versionMoved) {
+    out("");
+    out("  !! VERSION MOVED — every recorded row is SUPERSEDED.");
+    out("     The claims describe a node version that is no longer the one answering.");
+    out("     Update lib.mjs RPC_SURFACE with a fresh measurement before publishing conclusions.");
+  }
+  out("");
+  for (const r of v.rows) {
+    const mark = r.verdict === "current" ? "current " : r.verdict.toUpperCase();
+    out(`  ${mark.padEnd(11)} ${r.method.padEnd(20)} recorded=${r.recorded ? "supported" : "absent"} live=${r.live}`);
+  }
+  out("");
+  out(`  summary: current=${v.summary.current} stale=${v.summary.stale} superseded=${v.summary.superseded} unreachable=${v.summary.unreachable}`);
+  out("");
+  if (v.publishable) {
+    out("  RESULT: every recorded claim is CURRENT. Conclusions drawn from this run are publishable.");
+    out("          They remain endpoint-scoped and version-scoped: they are true of THIS endpoint");
+    out("          at THIS version, not of Pi's RPC in general.");
+  } else {
+    out("  RESULT: DO NOT PUBLISH from this run. Reasons:");
+    for (const [k, mean] of Object.entries(CLAIM_VERIFICATION)) {
+      if (BLOCKING_VERIFICATION.includes(k) && v.summary[k] > 0) out(`    - ${v.summary[k]} row(s) ${k}: ${mean}`);
+    }
+    out("");
+    out("  Action: re-measure, update lib.mjs RPC_SURFACE with the new reading and the new");
+    out("          node/protocol version, then re-run this command until it reports CURRENT.");
+    process.exitCode = 2;
+  }
 }
 
 async function failures() {
@@ -189,6 +235,27 @@ function report(id) {
   out(renderReport(synthetic));
 }
 
+function analysisLimit() {
+  rule("CONTRACT-ANALYSIS LAYER — what this RPC can and cannot provide");
+  out(`  ${ANALYSIS_NOT_CLAIMED}`);
+  out("");
+  out("  AVAILABLE from this endpoint:");
+  for (const a of ANALYSIS_REQUIREMENTS.available) {
+    out(`    + ${a.need}`);
+    out(`        via ${a.method} — ${a.status}`);
+  }
+  out("");
+  out("  UNAVAILABLE from this endpoint (measured: -32601 method not found, or no method):");
+  for (const u of ANALYSIS_REQUIREMENTS.unavailable) {
+    out(`    x ${u.need}`);
+    out(`        via ${u.method} — ${u.status}`);
+  }
+  out("");
+  out(`  conclusion: ${ANALYSIS_REQUIREMENTS.conclusion}`);
+  out("");
+  out("  Infra note: this exposes that the gap is not a design choice but a missing capability at the endpoint. A tool built on this inference is correct.");
+}
+
 function boundaries() {
   rule("WHAT THIS TOOL REFUSES TO DO");
   for (const b of BOUNDARIES) out(`  - ${b}`);
@@ -207,6 +274,7 @@ const after = (f) => { const i = args.indexOf(f); return args[i + 1]; };
 
 if (args.length === 0 || has("--help") || has("-h")) help();
 else if (has("--surface")) await surface();
+else if (has("--verify-claims")) await verifyClaims();
 else if (has("--failures")) await failures();
 else if (has("--identity")) await identity();
 else if (has("--mainnet")) await mainnet();
@@ -215,6 +283,7 @@ else if (has("--snapshot")) await snapshot(after("--snapshot"));
 else if (has("--compare")) compare(after("--compare"), args[args.indexOf("--compare") + 2]);
 else if (has("--verdicts")) verdicts();
 else if (has("--report")) report(after("--report"));
+else if (has("--analysis-limit")) analysisLimit();
 else if (has("--boundaries")) boundaries();
 else {
   out(`unknown option: ${args.join(" ")}`);

@@ -11,6 +11,8 @@ broadcast.
 | [`../README.md`](../README.md) | What this is, what it refuses to claim, quick start |
 | [`SIMULATION.md`](SIMULATION.md) | What the Testnet node actually supports (measured) |
 | [`FAILURE-SHAPES.md`](FAILURE-SHAPES.md) | The five measured failure shapes, verbatim |
+| [`CLAIM-VERIFICATION.md`](CLAIM-VERIFICATION.md) | Why a recorded measurement is not evidence; how re-measurement is enforced |
+| [`ANALYSIS-LIMIT.md`](ANALYSIS-LIMIT.md) | What this RPC cannot provide a logic-analysis layer |
 | [`REGRESSION.md`](REGRESSION.md) | How two runs are compared honestly |
 | [`DECISIONS.md`](DECISIONS.md) | Decision record, including what was **not** built and why |
 | [`SOURCES.md`](SOURCES.md) | Every source, by claim kind |
@@ -21,6 +23,7 @@ broadcast.
 | Command | Does |
 |---|---|
 | `node sim.mjs --surface` | which RPC methods the node answers (live) |
+| `node sim.mjs --verify-claims` | re-measure every recorded claim; **exit 2** if stale/superseded/unreachable |
 | `node sim.mjs --identity` | node version / protocol / ledger (live) |
 | `node sim.mjs --failures` | reproduce failure shapes F1–F5 (live) |
 | `node sim.mjs --mainnet` | Mainnet RPC reachability (live) |
@@ -29,6 +32,7 @@ broadcast.
 | `node sim.mjs --compare A B` | compare two snapshots |
 | `node sim.mjs --verdicts` | the verdict model (offline) |
 | `node sim.mjs --report F1` | one failure shape as a report (offline) |
+| `node sim.mjs --analysis-limit` | what this RPC cannot provide a logic layer (offline) |
 | `node sim.mjs --boundaries` | what this tool refuses to claim |
 | `node test/run.mjs` | offline invariant suite |
 
@@ -37,6 +41,8 @@ broadcast.
 | Concept | Value |
 |---|---|
 | Scope | Pi **Testnet** Soroban JSON-RPC (Mainnet RPC not reachable) |
+| Claim scopes | endpoint-scoped · version-scoped · protocol-scoped (never "always") |
+| Claim verification | current · stale · superseded · unreachable (last three block publishing) |
 | Claim kinds | measured · documented · external · not-claimed |
 | Verdicts | simulated-ok · envelope-error · absent-not-error · validation-error · method-absent · unreachable |
 | Forbidden inference | simulation success ⇒ on-chain success |

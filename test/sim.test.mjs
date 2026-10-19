@@ -4,6 +4,7 @@ import {
   CLAIM_KINDS, FORBIDDEN_CLAIMS, RPC_SURFACE, isSupported, FAILURE_SHAPES, failureById,
   VERDICTS, verdictById, FORBIDDEN_INFERENCE, REGRESSION_REQUIREMENTS, BOUNDARIES,
   FORBIDDEN_OPERATIONS, FIXTURES, FIXTURE_NOTE,
+  CLAIM_SCOPES, CLAIM_VERIFICATION, BLOCKING_VERIFICATION, ANALYSIS_REQUIREMENTS, ANALYSIS_NOT_CLAIMED,
 } from "../lib.mjs";
 import { classify, buildReport, renderReport, compareRuns, isComparable, REPORT_DISCLAIMER } from "../report.mjs";
 import { classifySupport, SURFACE_PROBES } from "../probe.mjs";
@@ -39,6 +40,32 @@ ok(!isSupported("getContractData"), "getContractData is measured as ABSENT");
 const gc = RPC_SURFACE.methods.find((m) => m.name === "getContractData");
 ok(/getLedgerEntries/.test(gc.note), "the absent method points at the supported replacement");
 eq(isSupported("nope"), false, "an unknown method is not supported");
+
+// --- claims are ENDPOINT- and VERSION-scoped, never "always true" -----------
+ok(RPC_SURFACE.scope && /endpoint/i.test(RPC_SURFACE.scope), "the surface states its scope");
+ok(RPC_SURFACE.measuredAt, "the surface records when it was measured");
+ok(RPC_SURFACE.measuredAtMeaning && /not a guarantee|re-run/i.test(RPC_SURFACE.measuredAtMeaning),
+  "the measuredAt date is explicitly not presented as evidence");
+eq(CLAIM_SCOPES.map((s) => s.id), ["endpoint-scoped", "version-scoped", "protocol-scoped"],
+  "exactly three claim scopes, none named 'always'");
+ok(!CLAIM_SCOPES.some((s) => /always|universal/i.test(s.id)), "there is no 'always true' claim scope");
+eq(Object.keys(CLAIM_VERIFICATION).sort(), ["current", "stale", "superseded", "unreachable"].sort(),
+  "four verification verdicts");
+eq(BLOCKING_VERIFICATION.sort(), ["stale", "superseded", "unreachable"].sort(),
+  "stale, superseded and unreachable all block publishing");
+ok(!BLOCKING_VERIFICATION.includes("current"), "'current' does not block publishing");
+
+// --- the analysis layer is recorded as NOT derivable from this RPC ----------
+ok(ANALYSIS_REQUIREMENTS.available.length > 0, "the analysis page lists what IS available");
+ok(ANALYSIS_REQUIREMENTS.unavailable.length > 0, "the analysis page lists what is NOT available");
+ok(ANALYSIS_REQUIREMENTS.unavailable.some((u) => /WASM/i.test(u.need)),
+  "fetching contract WASM is recorded as unavailable");
+ok(ANALYSIS_REQUIREMENTS.unavailable.some((u) => /enumerate/i.test(u.need)),
+  "enumerating storage is recorded as unavailable");
+ok(/cannot be derived from this RPC alone/i.test(ANALYSIS_REQUIREMENTS.conclusion),
+  "the conclusion is explicitly that a logic layer cannot come from this RPC alone");
+ok(/does not analyse contract logic/i.test(ANALYSIS_NOT_CLAIMED),
+  "the analysis limit is stated as a non-claim");
 
 // --- failure shapes are complete and each is anchored ------------------------
 ok(FAILURE_SHAPES.length >= 5, "at least five measured failure shapes");
@@ -129,6 +156,24 @@ const text = renderReport(rep);
 ok(/does NOT mean/.test(text), "rendered report includes the 'does NOT mean' section");
 ok(!/guarantee/i.test(text) || /not a guarantee|does NOT/i.test(text), "rendered report makes no guarantee claim");
 
+// --- E: a SUCCESSFUL simulation must never read as an on-chain guarantee ----
+const okReport = buildReport({
+  method: "simulateTransaction",
+  attempt: { transport: "http-ok", json: { result: { entries: [{ x: 1 }], latestLedger: 42, id: "success" } } },
+  nodeVersion: "28.0.1",
+});
+eq(okReport.verdict, "simulated-ok", "a successful simulation classifies as simulated-ok");
+const okText = renderReport(okReport);
+ok(/does NOT mean/.test(okText), "a SUCCESS report still carries the 'does NOT mean' section");
+ok(/will succeed on-chain/i.test(okText) && /does NOT mean/.test(okText),
+  "a SUCCESS report explicitly states it does not mean on-chain success");
+ok(!/guarantee/i.test(okText.replace(/does NOT mean[\s\S]*/i, "")) || !/guarantee/i.test(okText),
+  "a SUCCESS report contains no guarantee wording");
+ok(okReport.doesNotMean.some((d) => /succeed on-chain/i.test(d)),
+  "simulated-ok's doesNotMean includes on-chain success");
+// and the rendered success report must contain a negation, not just a positive claim
+ok(/\b(not|does not|never)\b/i.test(okText), "a SUCCESS report contains explicit negation");
+
 // --- regression comparison --------------------------------------------------
 const before = { nodeVersion: "28.0.1", protocolVersion: 28, cases: [{ key: "F1", verdict: "envelope-error" }, { key: "F2", verdict: "absent-not-error" }] };
 const afterSame = { nodeVersion: "28.0.1", protocolVersion: 28, cases: [{ key: "F1", verdict: "envelope-error" }, { key: "F2", verdict: "absent-not-error" }] };
@@ -153,6 +198,7 @@ ok(!/private|seed|mnemonic/i.test(JSON.stringify(FIXTURES)), "no fixture contain
 const docs = [
   "README.md", "llms.txt", "docs/INDEX.md", "docs/SIMULATION.md", "docs/FAILURE-SHAPES.md",
   "docs/REGRESSION.md", "docs/SOURCES.md", "docs/VERIFICATION.md", "docs/DECISIONS.md",
+  "docs/CLAIM-VERIFICATION.md", "docs/ANALYSIS-LIMIT.md",
 ];
 for (const rel of docs) {
   let src;
@@ -197,6 +243,14 @@ ok(/[^\n]*guarantee[^\n]*\?/i.test(llms) || /not a guarantee|no guarantee/i.test
 for (const p of SURFACE_PROBES) {
   ok(RPC_SURFACE.methods.some((m) => m.name === p.name), `SURFACE_PROBES includes a recorded method: ${p.name}`);
 }
+// and every recorded method must be probed — otherwise verify-claims would report
+// an untested claim as 'unreachable', which is the exact confusion it prevents.
+for (const m of RPC_SURFACE.methods) {
+  ok(SURFACE_PROBES.some((p) => p.name === m.name),
+    `every recorded method is probed live: ${m.name}`);
+}
+eq(SURFACE_PROBES.length, RPC_SURFACE.methods.length,
+  "the probe covers exactly the recorded surface (no method silently unverified)");
 
 console.log("pi-contract-simulator — invariant tests");
 console.log(`  pass: ${pass}`);

@@ -25,18 +25,37 @@ export const FORBIDDEN_CLAIMS = [
 ];
 
 // ---------------------------------------------------------------------------
-// 2. The RPC surface — measured today against rpc.testnet.minepi.com
+// 2. The RPC surface — a CLAIM, scoped to an endpoint AND a node version
 // ---------------------------------------------------------------------------
+//
+// This is the single most important distinction in this file:
+//
+//   "method absent"  !=  "method not supported at this endpoint/version"
+//
+// The second is what we can actually measure. So every row below is a CLAIM
+// that carries the endpoint, node version and protocol version it was measured
+// against — never a statement about "Pi's RPC in general".
 //
 // A method is "supported" when the node answers it (even with a validation
 // error). A method is "absent" when the node answers -32601 method not found.
+// Both are properties of THIS endpoint AT THIS VERSION, and both can change.
+//
+// `verifyClaim()` (in probe.mjs) re-measures any row live and returns
+// `current` / `stale` / `superseded` — so no conclusion is published without a
+// fresh measurement. The static `measuredAt` date is deliberately accompanied
+// by a warning: a date is not evidence, a re-run is.
 
 export const RPC_SURFACE = {
   endpoint: "https://rpc.testnet.minepi.com",
   measuredAt: "2026-10-19",
+  /** What the measuredAt date means, and what it does not. */
+  measuredAtMeaning:
+    "the date this claim was recorded; it is NOT a guarantee that the claim still holds — re-run with --verify-claims",
   protocolVersion: 28,
   nodeVersion: "28.0.1",
   captiveCoreVersion: "v28.0.1",
+  /** Every row is scoped to the version above; a version change invalidates it. */
+  scope: "this endpoint, at this node version and protocol version",
   methods: [
     { name: "getHealth", supported: true, note: "status, latestLedger, oldestLedger, ledgerRetentionWindow" },
     { name: "getNetwork", supported: true, note: "passphrase, protocolVersion" },
@@ -47,12 +66,36 @@ export const RPC_SURFACE = {
     { name: "simulateTransaction", supported: true, note: "simulation; failures arrive INSIDE result.error, not as a JSON-RPC error" },
     { name: "getTransaction", supported: true, note: "requires a full 32-byte hash" },
     { name: "getEvents", supported: true, note: "bounded window; cap 100; endLedger exclusive" },
-    { name: "getContractData", supported: false, note: "NOT PRESENT (-32601 method not found) — use getLedgerEntries" },
+    { name: "getContractData", supported: false, note: "NOT PRESENT at this version (-32601 method not found) — use getLedgerEntries" },
   ],
 };
 
 export const isSupported = (name) =>
   RPC_SURFACE.methods.find((m) => m.name === name)?.supported ?? false;
+
+/**
+ * The types of claim a row can be, so a publisher cannot confuse them:
+ *   - endpoint-scoped: true here, maybe not elsewhere (a different endpoint)
+ *   - version-scoped:  true at nodeVersion 28.0.1, maybe not after an upgrade
+ *   - protocol-scoped: true under protocol 28
+ * There is deliberately NO "always true" kind.
+ */
+export const CLAIM_SCOPES = [
+  { id: "endpoint-scoped", meaning: "measured at RPC_SURFACE.endpoint only; another endpoint may differ" },
+  { id: "version-scoped", meaning: "measured at RPC_SURFACE.nodeVersion only; an upgrade may change it" },
+  { id: "protocol-scoped", meaning: "measured under RPC_SURFACE.protocolVersion only" },
+];
+
+/** Verdicts produced when a recorded claim is compared against a fresh measurement. */
+export const CLAIM_VERIFICATION = {
+  current: "the recorded claim matches a fresh measurement at this moment",
+  stale: "the recorded claim no longer matches — the node's behaviour moved; update the claim WITH the new reading",
+  superseded: "a different node/protocol version answered; the old claim is about a version that is no longer live",
+  unreachable: "the endpoint could not be contacted, so NO claim can be confirmed — do not publish from this run",
+};
+
+/** Verdicts that forbid publishing a conclusion built on this run. */
+export const BLOCKING_VERIFICATION = ["stale", "superseded", "unreachable"];
 
 // ---------------------------------------------------------------------------
 // 3. Measured failure shapes — the part a simulator report must get right
@@ -190,6 +233,46 @@ export const FORBIDDEN_OPERATIONS = [
   "sendTransaction",
   "postTransaction",
 ];
+
+// ---------------------------------------------------------------------------
+// 6b. The contract-analysis layer — measured as NOT supported by this RPC
+// ---------------------------------------------------------------------------
+//
+// A frequent request is to analyse a contract's *logic*: preconditions, state
+// transitions, test cases. The honest question is whether the RPC can supply
+// what such a layer needs. It cannot, and this is MEASURED, not assumed:
+//
+//   getContractWasm   -> -32601 method not found
+//   getContractCode   -> -32601 method not found
+//   getLedgerEntry    -> -32601 method not found
+//   getAccount        -> -32601 method not found
+//   (enumerate)       -> no method exists; getLedgerEntries requires exact keys
+//
+// There is no method that returns a contract's WASM. There is no method that
+// enumerates a contract's storage. So "analyse the contract's logic" cannot be
+// derived from this RPC alone. This is recorded so the limit is a measurement
+// rather than an omission.
+
+export const ANALYSIS_REQUIREMENTS = {
+  available: [
+    { need: "execute a fully-built transaction and read the node's result", method: "simulateTransaction", status: "available" },
+    { need: "read a known ledger key exactly", method: "getLedgerEntries", status: "available (exact keys required)" },
+    { need: "identify the node version for reproducibility", method: "getVersionInfo", status: "available" },
+    { need: "read fee percentiles", method: "getFeeStats", status: "available" },
+  ],
+  unavailable: [
+    { need: "fetch a contract's WASM", method: "getContractWasm", status: "absent (-32601 method not found)" },
+    { need: "fetch a contract's code entry", method: "getContractCode", status: "absent (-32601 method not found)" },
+    { need: "enumerate a contract's storage entries", method: "(none)", status: "no enumerate method exists on this endpoint" },
+    { need: "read an account's state", method: "getAccount", status: "absent (-32601 method not found)" },
+  ],
+  conclusion:
+    "A logic-analysis layer cannot be derived from this RPC alone. It would require the contract's WASM from a separate source AND the storage layout, neither of which this endpoint provides.",
+};
+
+/** The claim a logic-analysis feature would have to make, and why it is not made. */
+export const ANALYSIS_NOT_CLAIMED =
+  "This tool does not analyse contract logic, preconditions, or state transitions. It reports what the node returned for a simulation and a ledger read.";
 
 // ---------------------------------------------------------------------------
 // 7. Fixtures — synthetic, clearly labelled, never a real transaction

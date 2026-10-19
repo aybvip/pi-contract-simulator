@@ -6,6 +6,8 @@
 //   - No API keys, tokens, or credentials are read or sent.
 //   - Where a probe cannot reach the endpoint, that IS the measurement.
 
+import { RPC_SURFACE, BLOCKING_VERIFICATION } from "./lib.mjs";
+
 const TESTNET_RPC = "https://rpc.testnet.minepi.com";
 const MAINNET_RPC = "https://rpc.mainnet.minepi.com";
 const TIMEOUT_MS = 15000;
@@ -49,6 +51,8 @@ export const SURFACE_PROBES = [
   { name: "getFeeStats", params: {} },
   { name: "getLedgerEntries", params: { keys: [] } },
   { name: "simulateTransaction", params: {} },
+  { name: "getTransaction", params: {} },
+  { name: "getEvents", params: {} },
   { name: "getContractData", params: {} },
 ];
 
@@ -180,6 +184,91 @@ export async function runAllProbes() {
     surface: await probeSurface(),
     failures: await probeFailureShapes(),
     mainnet: await probeMainnet(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// P5 — verify every RECORDED claim against a fresh measurement
+// ---------------------------------------------------------------------------
+//
+// This is the answer to "do not publish a conclusion about the network without
+// re-measuring". It re-probes each recorded row and classifies the match as
+// current / stale / superseded / unreachable. It never guesses.
+
+/**
+ * Verify the recorded RPC surface against a live measurement.
+ *
+ * @returns {{
+ *   endpoint: string,
+ *   recordedVersion: string|null, recordedProtocol: number|null,
+ *   liveVersion: string|null, liveProtocol: number|null,
+ *   rows: Array<{method: string, recorded: boolean, live: string, verdict: string}>,
+ *   summary: { current: number, stale: number, superseded: number, unreachable: number },
+ *   publishable: boolean
+ * }}
+ */
+export async function verifyRecordedClaims(endpoint = RPC_SURFACE.endpoint, timeoutMs = TIMEOUT_MS) {
+  // 1. Establish the live identity first — without it, no comparison is valid.
+  const identity = await probeIdentity(endpoint, timeoutMs);
+  if (identity.nodeVersion == null) {
+    return {
+      endpoint,
+      recordedVersion: RPC_SURFACE.nodeVersion,
+      recordedProtocol: RPC_SURFACE.protocolVersion,
+      liveVersion: null,
+      liveProtocol: null,
+      rows: RPC_SURFACE.methods.map((m) => ({
+        method: m.name, recorded: m.supported, live: "unreachable", verdict: "unreachable",
+      })),
+      summary: { current: 0, stale: 0, superseded: 0, unreachable: RPC_SURFACE.methods.length },
+      publishable: false,
+    };
+  }
+
+  // 2. A different version means the recorded claim is about a version that is
+  //    no longer live — every row is "superseded", regardless of what it says.
+  const versionMoved =
+    identity.nodeVersion !== RPC_SURFACE.nodeVersion ||
+    identity.protocolVersion !== RPC_SURFACE.protocolVersion;
+
+  const surface = await probeSurface(endpoint, timeoutMs);
+  const liveByName = new Map(surface.rows.map((r) => [r.method, r]));
+
+  const rows = [];
+  for (const m of RPC_SURFACE.methods) {
+    const live = liveByName.get(m.name);
+    // A recorded method that was not probed at all is UNKNOWN, not unreachable.
+    // Treating "not asked" as "not reachable" is exactly the confusion this
+    // command exists to prevent, so it is reported as its own state.
+    if (live === undefined) {
+      rows.push({ method: m.name, recorded: m.supported, live: "not-probed", verdict: "unreachable" });
+      continue;
+    }
+    const liveClass = live.classification;
+    const liveSupported = liveClass === "supported" || liveClass === "supported-validation-error";
+    let verdict;
+    if (versionMoved) verdict = "superseded";
+    else if (liveClass === "unreachable") verdict = "unreachable";
+    else if (liveSupported === m.supported) verdict = "current";
+    else verdict = "stale";
+    rows.push({ method: m.name, recorded: m.supported, live: liveSupported ? "supported" : liveClass, verdict });
+  }
+
+  const summary = { current: 0, stale: 0, superseded: 0, unreachable: 0 };
+  for (const r of rows) summary[r.verdict]++;
+
+  const blocking = BLOCKING_VERIFICATION.some((v) => summary[v] > 0);
+
+  return {
+    endpoint,
+    recordedVersion: RPC_SURFACE.nodeVersion,
+    recordedProtocol: RPC_SURFACE.protocolVersion,
+    liveVersion: identity.nodeVersion,
+    liveProtocol: identity.protocolVersion,
+    versionMoved,
+    rows,
+    summary,
+    publishable: !blocking,
   };
 }
 
