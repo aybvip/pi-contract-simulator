@@ -1,0 +1,10 @@
+node_modules/
+*.log
+.DS_Store
+.env
+.env.*
+*.json.snapshot
+before.json
+after.json
+current.json
+baseline.json

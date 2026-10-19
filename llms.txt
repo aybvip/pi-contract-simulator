@@ -1,0 +1,70 @@
+# pi-contract-simulator
+
+> Simulate Pi Testnet contract calls, read-only. Classifies the outcome and states what it does NOT
+> mean. Never signs, submits, or broadcasts. Mainnet RPC is not reachable, so scope is Testnet.
+
+## One-line answers
+
+- What is this? A read-only CLI that exercises the Pi Testnet Soroban JSON-RPC and reports a verdict
+  a developer can act on.
+- Does a successful simulation guarantee success on-chain? **No.** That inference is explicitly
+  forbidden and enforced by tests.
+- Does it analyse my contract's logic? **No.** It reports what the node returned.
+- Does it work on Mainnet? **No.** `rpc.mainnet.minepi.com` is not reachable (measured).
+- Does it sign or submit anything? **No.** Simulation and reads only.
+- Which methods does the Pi Testnet node support? `simulateTransaction`, `getLedgerEntries` (empty set
+  is NOT an error), `getHealth`, `getNetwork`, `getLatestLedger`, `getVersionInfo`, `getFeeStats`,
+  `getTransaction`, `getEvents`. `getContractData` is **absent** (-32601 method not found).
+- What is the trap? A simulation failure arrives **inside `result` over HTTP 200 with no JSON-RPC
+  error**, so a tool that only checks `jsonrpc.error` reports it as a success. This tool reports it as
+  `envelope-error`.
+- What are the verdicts? `simulated-ok`, `envelope-error`, `absent-not-error`, `validation-error`,
+  `method-absent`, `unreachable`.
+- How do I compare two runs? `node sim.mjs --snapshot FILE` then `--compare A B`. A node-version change
+  is reported first; fee numbers are never compared.
+- How do I check it? `node sim.mjs --probe` (live, read-only) and `node test/run.mjs` (offline).
+- Did Pi approve this? **No.** No approval or endorsement is claimed.
+- Is a "capability passport" included? **No.** It was declined because "signed evidence" requires
+  naming an authority this project does not have.
+
+## Commands (zero-dependency)
+
+```
+node sim.mjs --surface         # RPC methods the node answers (live)
+node sim.mjs --identity        # node version / protocol / ledger (live)
+node sim.mjs --failures        # failure shapes F1-F5 (live)
+node sim.mjs --mainnet         # Mainnet RPC reachability (live)
+node sim.mjs --probe           # all live probes
+node sim.mjs --snapshot FILE   # write a comparable snapshot
+node sim.mjs --compare A B     # compare two snapshots
+node sim.mjs --verdicts        # verdict model (offline)
+node sim.mjs --report F1       # one failure shape as a report (offline)
+node sim.mjs --boundaries      # what this tool refuses to claim
+node test/run.mjs              # offline invariants
+```
+
+## Claim kinds
+
+Every statement is exactly one of: `measured` · `documented` · `external` · `not-claimed`.
+
+## Never claimed
+
+On-chain success, contract-logic correctness, Mainnet behaviour, fee promises, approval or endorsement.
+
+## Pages
+
+- Simulation: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/SIMULATION.md
+- Failure shapes: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/FAILURE-SHAPES.md
+- Regression: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/REGRESSION.md
+- Decisions: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/DECISIONS.md
+- Sources: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/SOURCES.md
+- Verification: https://github.com/aybvip/pi-contract-simulator/blob/main/docs/VERIFICATION.md
+
+## Related
+
+- pi-gap-index: https://github.com/aybvip/pi-gap-index
+- pi-soroban-events: https://github.com/aybvip/pi-soroban-events
+
+## Scope
+
+Read-only, unofficial. Not affiliated with Pi Network. Measured values are as observed at run time.

@@ -1,0 +1,20 @@
+{
+  "name": "pi-contract-simulator",
+  "version": "1.0.0",
+  "private": false,
+  "description": "Read-only contract simulation against the Pi Testnet Soroban RPC, with honest failure classification. Never signs or submits. Testnet only.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-network", "soroban", "simulateTransaction", "testnet", "read-only", "developer-tools"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node test/run.mjs",
+    "surface": "node sim.mjs --surface",
+    "failures": "node sim.mjs --failures",
+    "identity": "node sim.mjs --identity",
+    "probe": "node sim.mjs --probe",
+    "verdicts": "node sim.mjs --verdicts",
+    "boundaries": "node sim.mjs --boundaries"
+  },
+  "files": ["README.md", "llms.txt", "sim.mjs", "probe.mjs", "report.mjs", "lib.mjs", "docs", "test", "fixtures", "LICENSE"]
+}
